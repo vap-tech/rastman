@@ -3,20 +3,31 @@ use iced::widget::{
     row, scrollable, text, text_input, toggler, vertical_rule,
     vertical_space,
 };
-use iced::{Center, Element, Fill, Theme};
+use iced::{Center, Element, Fill, Theme, Font};
 
 pub fn main() -> iced::Result {
     iced::application("Rastman - API Client", Rastman::update, Rastman::view)
         .theme(Rastman::theme)
+        .default_font(Font::with_name("Firo"))
         .run()
 }
 
-#[derive(Default)]
 struct Rastman {
     theme: Theme,
     input_value: String,
     checkbox_value: bool,
     toggler_value: bool,
+}
+
+impl Default for Rastman {
+    fn default() -> Self {
+        Self {
+            theme: Theme::Dark,           // ВРУЧНУЮ задаем темную тему
+            input_value: String::new(),
+            checkbox_value: false,
+            toggler_value: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,12 +60,12 @@ impl Rastman {
         ]
             .spacing(10);
 
-        let text_input = text_input("Type something...", &self.input_value)
+        let text_input = text_input("https://...", &self.input_value)
             .on_input(Message::InputChanged)
             .padding(10)
             .size(20);
 
-        let button = button("Submit")
+        let button = button("🚀 Submit")
             .padding(10)
             .on_press(Message::ButtonPressed);
 
@@ -76,8 +87,9 @@ impl Rastman {
 
         let content = column![
             choose_theme,
-            horizontal_rule(38),
+            horizontal_rule(15),
             row![text_input, button].spacing(10).align_y(Center),
+            horizontal_rule(15),
 
             row![
                 scrollable,
@@ -88,7 +100,7 @@ impl Rastman {
             .height(100)
             .align_y(Center),
         ]
-            .spacing(20)
+            .spacing(10)
             .padding(20)
             .max_width(600);
 
