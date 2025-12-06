@@ -1,21 +1,20 @@
 use iced::widget::{
-    button, center, checkbox, column, horizontal_rule, pick_list, progress_bar,
-    row, scrollable, slider, text, text_input, toggler, vertical_rule,
+    button, center, checkbox, column, horizontal_rule, pick_list,
+    row, scrollable, text, text_input, toggler, vertical_rule,
     vertical_space,
 };
 use iced::{Center, Element, Fill, Theme};
 
 pub fn main() -> iced::Result {
-    iced::application("Rastman - API Client", Styling::update, Styling::view)
-        .theme(Styling::theme)
+    iced::application("Rastman - API Client", Rastman::update, Rastman::view)
+        .theme(Rastman::theme)
         .run()
 }
 
 #[derive(Default)]
-struct Styling {
+struct Rastman {
     theme: Theme,
     input_value: String,
-    slider_value: f32,
     checkbox_value: bool,
     toggler_value: bool,
 }
@@ -25,12 +24,11 @@ enum Message {
     ThemeChanged(Theme),
     InputChanged(String),
     ButtonPressed,
-    SliderChanged(f32),
     CheckboxToggled(bool),
     TogglerToggled(bool),
 }
 
-impl Styling {
+impl Rastman {
     fn update(&mut self, message: Message) {
         match message {
             Message::ThemeChanged(theme) => {
@@ -38,13 +36,12 @@ impl Styling {
             }
             Message::InputChanged(value) => self.input_value = value,
             Message::ButtonPressed => {}
-            Message::SliderChanged(value) => self.slider_value = value,
             Message::CheckboxToggled(value) => self.checkbox_value = value,
             Message::TogglerToggled(value) => self.toggler_value = value,
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let choose_theme = column![
             text("Theme:"),
             pick_list(Theme::ALL, Some(&self.theme), Message::ThemeChanged)
@@ -61,14 +58,9 @@ impl Styling {
             .padding(10)
             .on_press(Message::ButtonPressed);
 
-        let slider =
-            slider(0.0..=100.0, self.slider_value, Message::SliderChanged);
-
-        let progress_bar = progress_bar(0.0..=100.0, self.slider_value);
-
         let scrollable = scrollable(column![
             "Scroll me!",
-            vertical_space().height(800),
+            vertical_space().height(10),
             "You did it!"
         ])
             .width(Fill)
@@ -86,8 +78,7 @@ impl Styling {
             choose_theme,
             horizontal_rule(38),
             row![text_input, button].spacing(10).align_y(Center),
-            slider,
-            progress_bar,
+
             row![
                 scrollable,
                 vertical_rule(38),

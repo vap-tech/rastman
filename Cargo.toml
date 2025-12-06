@@ -1,7 +1,7 @@
 [package]
-name = "editor"
+name = "rastman"
 version = "0.1.0"
-authors = ["Héctor Ramón Jiménez <hector@hecrj.dev>"]
+authors = ["Vitalii A. Petrenko <v.petrenko@space-flow.dev>"]
 edition = "2021"
 
 [dependencies]
