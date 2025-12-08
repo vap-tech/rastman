@@ -1,33 +1,25 @@
+use iced::keyboard;
 use iced::widget::{
-    button, center, checkbox, column, horizontal_rule, pick_list,
-    row, scrollable, text, text_input, toggler, vertical_rule,
-    vertical_space,
+    button, center_x, center_y, checkbox, column, container, pick_list,
+    progress_bar, row, rule, scrollable, slider, space, text, text_input,
+    toggler,
 };
-use iced::{Center, Element, Fill, Theme, Font};
+use iced::{Center, Element, Fill, Shrink, Subscription, Theme};
 
 pub fn main() -> iced::Result {
-    iced::application("Rastman - API Client", Rastman::update, Rastman::view)
-        .theme(Rastman::theme)
-        .default_font(Font::with_name("Firo"))
+    iced::application(Styling::default, Styling::update, Styling::view)
+        .subscription(Styling::subscription)
+        .theme(Styling::theme)
         .run()
 }
 
-struct Rastman {
-    theme: Theme,
+#[derive(Default)]
+struct Styling {
+    theme: Option<Theme>,
     input_value: String,
+    slider_value: f32,
     checkbox_value: bool,
     toggler_value: bool,
-}
-
-impl Default for Rastman {
-    fn default() -> Self {
-        Self {
-            theme: Theme::Dark,           // ВРУЧНУЮ задаем темную тему
-            input_value: String::new(),
-            checkbox_value: false,
-            toggler_value: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -35,79 +27,230 @@ enum Message {
     ThemeChanged(Theme),
     InputChanged(String),
     ButtonPressed,
+    SliderChanged(f32),
     CheckboxToggled(bool),
     TogglerToggled(bool),
+    PreviousTheme,
+    NextTheme,
+    ClearTheme,
 }
 
-impl Rastman {
+impl Styling {
     fn update(&mut self, message: Message) {
         match message {
             Message::ThemeChanged(theme) => {
-                self.theme = theme;
+                self.theme = Some(theme);
             }
             Message::InputChanged(value) => self.input_value = value,
             Message::ButtonPressed => {}
+            Message::SliderChanged(value) => self.slider_value = value,
             Message::CheckboxToggled(value) => self.checkbox_value = value,
             Message::TogglerToggled(value) => self.toggler_value = value,
+            Message::PreviousTheme | Message::NextTheme => {
+                let current = Theme::ALL.iter().position(|candidate| {
+                    self.theme.as_ref() == Some(candidate)
+                });
+
+                self.theme = Some(if matches!(message, Message::NextTheme) {
+                    Theme::ALL[current.map(|current| current + 1).unwrap_or(0)
+                        % Theme::ALL.len()]
+                        .clone()
+                } else {
+                    let current = current.unwrap_or(0);
+
+                    if current == 0 {
+                        Theme::ALL
+                            .last()
+                            .expect("Theme::ALL must not be empty")
+                            .clone()
+                    } else {
+                        Theme::ALL[current - 1].clone()
+                    }
+                });
+            }
+            Message::ClearTheme => {
+                self.theme = None;
+            }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
         let choose_theme = column![
             text("Theme:"),
-            pick_list(Theme::ALL, Some(&self.theme), Message::ThemeChanged)
-                .width(Fill),
+            pick_list(Theme::ALL, self.theme.as_ref(), Message::ThemeChanged)
+                .width(Fill)
+                .placeholder("System"),
         ]
             .spacing(10);
 
-        let text_input = text_input("https://...", &self.input_value)
+        let text_input = text_input("Type something...", &self.input_value)
             .on_input(Message::InputChanged)
             .padding(10)
             .size(20);
 
-        let button = button("🚀 Submit")
-            .padding(10)
-            .on_press(Message::ButtonPressed);
+        let buttons = {
+            let styles = [
+                ("Primary", button::primary as fn(&Theme, _) -> _),
+                ("Secondary", button::secondary),
+                ("Success", button::success),
+                ("Warning", button::warning),
+                ("Danger", button::danger),
+            ];
 
-        let scrollable = scrollable(column![
+            let styled_button =
+                |label| button(text(label).width(Fill).center()).padding(10);
+
+            column![
+                row(styles.into_iter().map(|(name, style)| styled_button(
+                    name
+                )
+                .on_press(Message::ButtonPressed)
+                .style(style)
+                .into()))
+                .spacing(10)
+                .align_y(Center),
+                row(styles.into_iter().map(|(name, style)| styled_button(
+                    name
+                )
+                .style(style)
+                .into()))
+                .spacing(10)
+                .align_y(Center),
+            ]
+                .spacing(10)
+        };
+
+        let slider =
+            || slider(0.0..=100.0, self.slider_value, Message::SliderChanged);
+
+        let progress_bar = || progress_bar(0.0..=100.0, self.slider_value);
+
+        let scroll_me = scrollable(column![
             "Scroll me!",
-            vertical_space().height(10),
+            space().height(800),
             "You did it!"
         ])
             .width(Fill)
-            .height(100);
+            .height(Fill)
+            .auto_scroll(true);
 
-        let checkbox = checkbox("Check me!", self.checkbox_value)
+        let check = checkbox(self.checkbox_value)
+            .label("Check me!")
             .on_toggle(Message::CheckboxToggled);
 
-        let toggler = toggler(self.toggler_value)
+        let check_disabled = checkbox(self.checkbox_value).label("Disabled");
+
+        let toggle = toggler(self.toggler_value)
             .label("Toggle me!")
             .on_toggle(Message::TogglerToggled)
             .spacing(10);
 
+        let disabled_toggle =
+            toggler(self.toggler_value).label("Disabled").spacing(10);
+
+        let card = {
+            container(
+                column![
+                    text("Card Example").size(24),
+                    slider(),
+                    progress_bar(),
+                ]
+                    .spacing(20),
+            )
+                .width(Fill)
+                .padding(20)
+                .style(container::bordered_box)
+        };
+
         let content = column![
             choose_theme,
-            horizontal_rule(15),
-            row![text_input, button].spacing(10).align_y(Center),
-            horizontal_rule(15),
-
+            rule::horizontal(1),
+            text_input,
+            buttons,
+            slider(),
+            progress_bar(),
             row![
-                scrollable,
-                vertical_rule(38),
-                column![checkbox, toggler].spacing(20)
+                scroll_me,
+                rule::vertical(1),
+                column![check, check_disabled, toggle, disabled_toggle]
+                    .spacing(10)
             ]
             .spacing(10)
-            .height(100)
+            .height(Shrink)
             .align_y(Center),
+            card
         ]
-            .spacing(10)
+            .spacing(20)
             .padding(20)
             .max_width(600);
 
-        center(content).into()
+        center_y(scrollable(center_x(content)).spacing(10))
+            .padding(10)
+            .into()
     }
 
-    fn theme(&self) -> Theme {
+    fn subscription(&self) -> Subscription<Message> {
+        keyboard::listen().filter_map(|event| {
+            let keyboard::Event::KeyPressed {
+                modified_key: keyboard::Key::Named(modified_key),
+                repeat: false,
+                ..
+            } = event
+            else {
+                return None;
+            };
+
+            match modified_key {
+                keyboard::key::Named::ArrowUp
+                | keyboard::key::Named::ArrowLeft => {
+                    Some(Message::PreviousTheme)
+                }
+                keyboard::key::Named::ArrowDown
+                | keyboard::key::Named::ArrowRight => Some(Message::NextTheme),
+                keyboard::key::Named::Space => Some(Message::ClearTheme),
+                _ => None,
+            }
+        })
+    }
+
+    fn theme(&self) -> Option<Theme> {
         self.theme.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rayon::prelude::*;
+
+    use iced_test::{Error, simulator};
+
+    #[test]
+    #[ignore]
+    fn it_showcases_every_theme() -> Result<(), Error> {
+        Theme::ALL
+            .par_iter()
+            .cloned()
+            .map(|theme| {
+                let mut styling = Styling::default();
+                styling.update(Message::ThemeChanged(theme.clone()));
+
+                let mut ui = simulator(styling.view());
+                let snapshot = ui.snapshot(&theme)?;
+
+                assert!(
+                    snapshot.matches_hash(format!(
+                        "snapshots/{theme}",
+                        theme = theme
+                            .to_string()
+                            .to_ascii_lowercase()
+                            .replace(" ", "_")
+                    ))?,
+                    "snapshots for {theme} should match!"
+                );
+
+                Ok(())
+            })
+            .collect()
     }
 }
