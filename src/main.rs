@@ -13,6 +13,35 @@ pub fn main() -> iced::Result {
         .run()
 }
 
+// Перечисление HTTP методов
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum HttpMethod {
+    #[default]
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    PATCH,
+}
+
+impl HttpMethod {
+    // Создадим список всех доступных методов
+    const ALL: &'static [HttpMethod] = &[
+        HttpMethod::GET,
+        HttpMethod::POST,
+        HttpMethod::PUT,
+        HttpMethod::DELETE,
+        HttpMethod::PATCH,
+    ];
+}
+
+// Реализуем Display для отображения в pick_list
+impl std::fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 #[derive(Default)]
 struct Styling {
     theme: Option<Theme>,
@@ -20,6 +49,8 @@ struct Styling {
     slider_value: f32,
     checkbox_value: bool,
     toggler_value: bool,
+    http_method: HttpMethod, // HTTP метод
+    url_input: String, // Поле для ввода URL
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +64,8 @@ enum Message {
     PreviousTheme,
     NextTheme,
     ClearTheme,
+    HttpMethodChanged(HttpMethod), // Изменение HTTP метода
+    UrlInputChanged(String), // Изменение URL
 }
 
 impl Styling {
@@ -71,6 +104,14 @@ impl Styling {
             Message::ClearTheme => {
                 self.theme = None;
             }
+            // ↓ Добавленная обработка ↓
+            Message::HttpMethodChanged(method) => {
+                self.http_method = method;
+            }
+            // ↓ Добавленная обработка ↓
+            Message::UrlInputChanged(url) => {
+                self.url_input = url;
+            }
         }
     }
 
@@ -82,6 +123,26 @@ impl Styling {
                 .placeholder("System"),
         ]
             .spacing(10);
+
+        // ↓ Добавленный выбор HTTP метода ↓
+        let choose_http_method = column![
+            text("HTTP Method:"),
+            pick_list(
+                HttpMethod::ALL,
+                Some(&self.http_method),
+                Message::HttpMethodChanged
+            )
+                .width(Fill)
+                .placeholder("Select method"),
+        ]
+            .spacing(10);
+
+        // ↓ Добавленное текстовое поле для URL ↓
+        let url_input = text_input("Enter API URL...", &self.url_input)
+            .on_input(Message::UrlInputChanged)
+            .padding(10)
+            .size(16) // Чуть меньше шрифт для URL
+            .width(Fill); // Заполняет всю доступную ширину
 
         let text_input = text_input("Type something...", &self.input_value)
             .on_input(Message::InputChanged)
@@ -164,6 +225,8 @@ impl Styling {
 
         let content = column![
             choose_theme,
+            choose_http_method, // ← Выбор метода
+            url_input, // ← Строка адреса
             rule::horizontal(1),
             text_input,
             buttons,
@@ -182,7 +245,7 @@ impl Styling {
         ]
             .spacing(20)
             .padding(20)
-            .max_width(600);
+            .max_width(800);
 
         center_y(scrollable(center_x(content)).spacing(10))
             .padding(10)
