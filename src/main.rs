@@ -5,6 +5,9 @@ use iced::widget::{
     toggler,
 };
 use iced::{Center, Element, Fill, Shrink, Subscription, Theme};
+use iced::highlighter; // Для подсветки синтаксиса
+use iced::widget::text_editor;
+
 
 pub fn main() -> iced::Result {
     iced::application(Styling::default, Styling::update, Styling::view)
@@ -81,8 +84,6 @@ impl std::fmt::Display for HeaderParam {
     }
 }
 
-
-#[derive(Default)]
 struct Styling {
     theme: Option<Theme>,
     input_value: String,
@@ -99,6 +100,33 @@ struct Styling {
     headers: Vec<HeaderParam>,
     new_header_key: String,
     new_header_value: String,
+    // ↓ Поля для JSON редактора ↓
+    json_theme: highlighter::Theme,
+    body_content: text_editor::Content,
+}
+
+// 3. Реализуй Default вручную
+impl Default for Styling {
+    fn default() -> Self {
+        Self {
+            theme: None,
+            input_value: String::new(),
+            slider_value: 0.0,
+            checkbox_value: false,
+            toggler_value: false,
+            http_method: HttpMethod::default(),
+            url_input: String::new(),
+            query_params: Vec::new(),
+            new_query_key: String::new(),
+            new_query_value: String::new(),
+            headers: Vec::new(),
+            new_header_key: String::new(),
+            new_header_value: String::new(),
+            // Инициализируем поля для JSON редактора
+            json_theme: highlighter::Theme::SolarizedDark, // или другой вариант
+            body_content: text_editor::Content::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +156,10 @@ enum Message {
     RemoveHeader(usize),
     UpdateHeaderKey(usize, String),
     UpdateHeaderValue(usize, String),
+    // ↓ Добавляем обработку действий редактора
+    BodyActionPerformed(text_editor::Action),
+    // ↓ Опционально: для смены темы подсветки
+    JsonThemeChanged(highlighter::Theme),
 }
 
 impl Styling {
@@ -239,6 +271,13 @@ impl Styling {
                 if let Some(header) = self.headers.get_mut(index) {
                     header.value = value;
                 }
+            }
+            Message::BodyActionPerformed(action) => {
+                // Просто применяем действие к редактору
+                self.body_content.perform(action);
+            }
+            Message::JsonThemeChanged(theme) => {
+                self.json_theme = theme;
             }
         }
     }
@@ -442,6 +481,43 @@ impl Styling {
                 .spacing(10)
         };
 
+        // Создадим секцию Body с text_editor
+        let body_section = {
+            let title = text("Body (JSON):").size(16);
+            
+            // Опционально: выбор темы подсветки
+            let theme_selector = row![
+                text("Syntax theme:").size(14),
+                pick_list(
+                    highlighter::Theme::ALL,
+                    Some(self.json_theme),
+                    Message::JsonThemeChanged
+                )
+                .width(200)
+                .padding(5)
+            ]
+            .spacing(10)
+            .align_y(Center);
+            
+            // Редактор JSON с подсветкой
+            let json_editor = text_editor(&self.body_content)
+                .height(150)
+                .on_action(Message::BodyActionPerformed)
+                .highlight("json", self.json_theme) // Подсветка JSON
+                .wrapping(text::Wrapping::Word);
+            
+            container(column![
+                title,
+                space().height(5),
+                theme_selector, // можно убрать, если не нужен
+                space().height(5),
+                json_editor,
+            ]
+            .spacing(5)
+            .padding(10))
+            .style(container::bordered_box)
+        };
+
         let slider =
             || slider(0.0..=100.0, self.slider_value, Message::SliderChanged);
 
@@ -489,6 +565,7 @@ impl Styling {
             choose_http_method, // ← Выбор метода
             url_input, // ← Строка адреса
             params_tables, // ← Таблички параметров
+            body_section, // ← Редактор Body
             rule::horizontal(1),
             text_input,
             buttons,
