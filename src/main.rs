@@ -35,6 +35,20 @@ impl HttpMethod {
     ];
 }
 
+// Добавим структуру для Query параметра
+#[derive(Debug, Clone)]
+struct QueryParam {
+    key: String,
+    value: String,
+}
+
+impl QueryParam {
+    fn new(key: String, value: String) -> Self {
+        Self { key, value }
+    }
+}
+
+
 // Реализуем Display для отображения в pick_list
 impl std::fmt::Display for HttpMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -51,6 +65,10 @@ struct Styling {
     toggler_value: bool,
     http_method: HttpMethod, // HTTP метод
     url_input: String, // Поле для ввода URL
+    // ↓ Добавленные поля ↓
+    query_params: Vec<QueryParam>, // Список параметров
+    new_query_key: String,         // Поле для нового ключа
+    new_query_value: String,       // Поле для нового значения
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +84,13 @@ enum Message {
     ClearTheme,
     HttpMethodChanged(HttpMethod), // Изменение HTTP метода
     UrlInputChanged(String), // Изменение URL
+    // ↓ Добавленные сообщения для Query Parameters ↓
+    NewQueryKeyChanged(String),       // Изменение поля нового ключа
+    NewQueryValueChanged(String),     // Изменение поля нового значения
+    AddQueryParam,                    // Добавить новый параметр
+    RemoveQueryParam(usize),          // Удалить параметр по индексу
+    UpdateQueryParamKey(usize, String), // Обновить ключ параметра
+    UpdateQueryParamValue(usize, String), // Обновить значение параметра
 }
 
 impl Styling {
@@ -112,6 +137,39 @@ impl Styling {
             Message::UrlInputChanged(url) => {
                 self.url_input = url;
             }
+            // ↓ Обработка Query Parameters ↓
+            Message::NewQueryKeyChanged(key) => {
+                self.new_query_key = key;
+            }
+            Message::NewQueryValueChanged(value) => {
+                self.new_query_value = value;
+            }
+            Message::AddQueryParam => {
+                if !self.new_query_key.trim().is_empty() {
+                    let param = QueryParam::new(
+                        self.new_query_key.trim().to_string(),
+                        self.new_query_value.trim().to_string(),
+                    );
+                    self.query_params.push(param);
+                    self.new_query_key.clear();
+                    self.new_query_value.clear();
+                }
+            }
+            Message::RemoveQueryParam(index) => {
+                if index < self.query_params.len() {
+                    self.query_params.remove(index);
+                }
+            }
+            Message::UpdateQueryParamKey(index, key) => {
+                if let Some(param) = self.query_params.get_mut(index) {
+                    param.key = key;
+                }
+            }
+            Message::UpdateQueryParamValue(index, value) => {
+                if let Some(param) = self.query_params.get_mut(index) {
+                    param.value = value;
+                }
+            }
         }
     }
 
@@ -143,6 +201,80 @@ impl Styling {
             .padding(10)
             .size(16) // Чуть меньше шрифт для URL
             .width(Fill); // Заполняет всю доступную ширину
+
+
+        // ↓ Создаем таблицу Query Parameters ↓
+        let query_params_section = {
+            // Заголовок
+            let header = text("Query Parameters:").size(16);
+
+            // Таблица существующих параметров
+            let params_table: Element<Message> = if self.query_params.is_empty() {
+                // Если параметров нет - показываем сообщение
+                container(text("No query parameters added yet").style(text::secondary))
+                    .padding(10)
+                    .center_x(Shrink)
+                    .into()
+            } else {
+                // Создаем таблицу с параметрами
+                let rows = self.query_params.iter().enumerate().map(|(index, param)| {
+                    row![
+                        // Поле для ключа
+                        text_input("Key", &param.key)
+                            .on_input(move |key| Message::UpdateQueryParamKey(index, key))
+                            .width(150)
+                            .padding(5),
+                        // Поле для значения
+                        text_input("Value", &param.value)
+                            .on_input(move |value| Message::UpdateQueryParamValue(index, value))
+                            .width(150)
+                            .padding(5),
+                        // Кнопка удаления
+                        button(text("🗑️").size(14))
+                            .on_press(Message::RemoveQueryParam(index))
+                            .padding(5)
+                            .style(button::danger),
+                    ]
+                    .spacing(10)
+                    .align_y(Center)
+                });
+
+                // Собираем строки в колонку и конвертируем в Element
+                let rows_vec: Vec<Element<Message>> = rows.map(|row| row.into()).collect();
+                column(rows_vec).spacing(5).into() // ← Исправлено
+
+            };
+
+            // Форма добавления нового параметра
+            let add_form = row![
+                text_input("New key...", &self.new_query_key)
+                    .on_input(Message::NewQueryKeyChanged)
+                    .width(150)
+                    .padding(5),
+                text_input("New value...", &self.new_query_value)
+                    .on_input(Message::NewQueryValueChanged)
+                    .width(150)
+                    .padding(5),
+                button(text("+ Add").size(14))
+                    .on_press(Message::AddQueryParam)
+                    .padding(5)
+                    .style(button::success),
+            ]
+            .spacing(10)
+            .align_y(Center);
+
+            // Собираем все вместе
+            container(column![
+                header,
+                space().height(5),
+                params_table,
+                space().height(10),
+                add_form,
+            ]
+                .spacing(5)
+                .padding(10))
+                .style(container::bordered_box) // ← Переместили style на container
+        };
 
         let text_input = text_input("Type something...", &self.input_value)
             .on_input(Message::InputChanged)
@@ -227,6 +359,7 @@ impl Styling {
             choose_theme,
             choose_http_method, // ← Выбор метода
             url_input, // ← Строка адреса
+            query_params_section, // ← Табличка параметров
             rule::horizontal(1),
             text_input,
             buttons,
