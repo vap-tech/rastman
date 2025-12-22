@@ -1,5 +1,5 @@
 [package]
-name = "rastman"
+name = "Rastman"
 version = "0.1.0"
 authors = ["Vitalii A. Petrenko <v.petrenko@space-flow.dev>"]
 edition = "2021"
