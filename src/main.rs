@@ -1,4 +1,4 @@
-use iced::{keyboard,};
+use iced::{keyboard, Task};
 use iced::widget::{
     button, center_x, center_y, checkbox, column, container, pick_list,
     progress_bar, row, rule, scrollable, slider, space, text, text_input,
@@ -172,19 +172,33 @@ enum Message {
     JsonThemeChanged(highlighter::Theme),
     // ↓ Добавляем ↓
     SendRequest,  // Отправка запроса
+    RequestCompleted(Result<(u16, String), String>), // ← По завершении запроса
 }
 
 impl Styling {
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ThemeChanged(theme) => {
                 self.theme = Some(theme);
+                Task::none()
             }
-            Message::InputChanged(value) => self.input_value = value,
-            Message::ButtonPressed => {}
-            Message::SliderChanged(value) => self.slider_value = value,
-            Message::CheckboxToggled(value) => self.checkbox_value = value,
-            Message::TogglerToggled(value) => self.toggler_value = value,
+            Message::InputChanged(value) => {
+                self.input_value = value;
+                Task::none()
+            }
+            Message::ButtonPressed => Task::none(),
+            Message::SliderChanged(value) => {
+                self.slider_value = value;
+                Task::none()
+            }
+            Message::CheckboxToggled(value) => {
+                self.checkbox_value = value;
+                Task::none()
+            }
+            Message::TogglerToggled(value) => {
+                self.toggler_value = value;
+                Task::none()
+            }
             Message::PreviousTheme | Message::NextTheme => {
                 let current = Theme::ALL.iter().position(|candidate| {
                     self.theme.as_ref() == Some(candidate)
@@ -206,24 +220,27 @@ impl Styling {
                         Theme::ALL[current - 1].clone()
                     }
                 });
+                Task::none()
             }
             Message::ClearTheme => {
                 self.theme = None;
+                Task::none()
             }
-            // ↓ Добавленная обработка ↓
             Message::HttpMethodChanged(method) => {
                 self.http_method = method;
+                Task::none()
             }
-            // ↓ Добавленная обработка ↓
             Message::UrlInputChanged(url) => {
                 self.url_input = url;
+                Task::none()
             }
-            // ↓ Обработка Query Parameters ↓
             Message::NewQueryKeyChanged(key) => {
                 self.new_query_key = key;
+                Task::none()
             }
             Message::NewQueryValueChanged(value) => {
                 self.new_query_value = value;
+                Task::none()
             }
             Message::AddQueryParam => {
                 if !self.new_query_key.trim().is_empty() {
@@ -235,28 +252,33 @@ impl Styling {
                     self.new_query_key.clear();
                     self.new_query_value.clear();
                 }
+                Task::none()
             }
             Message::RemoveQueryParam(index) => {
                 if index < self.query_params.len() {
                     self.query_params.remove(index);
                 }
+                Task::none()
             }
             Message::UpdateQueryParamKey(index, key) => {
                 if let Some(param) = self.query_params.get_mut(index) {
                     param.key = key;
                 }
+                Task::none()
             }
             Message::UpdateQueryParamValue(index, value) => {
                 if let Some(param) = self.query_params.get_mut(index) {
                     param.value = value;
                 }
+                Task::none()
             }
-            // ↓ Обработка Headers ↓
             Message::NewHeaderKeyChanged(key) => {
                 self.new_header_key = key;
+                Task::none()
             }
             Message::NewHeaderValueChanged(value) => {
                 self.new_header_value = value;
+                Task::none()
             }
             Message::AddHeader => {
                 if !self.new_header_key.trim().is_empty() {
@@ -268,96 +290,83 @@ impl Styling {
                     self.new_header_key.clear();
                     self.new_header_value.clear();
                 }
+                Task::none()
             }
             Message::RemoveHeader(index) => {
                 if index < self.headers.len() {
                     self.headers.remove(index);
                 }
+                Task::none()
             }
             Message::UpdateHeaderKey(index, key) => {
                 if let Some(header) = self.headers.get_mut(index) {
                     header.key = key;
                 }
+                Task::none()
             }
             Message::UpdateHeaderValue(index, value) => {
                 if let Some(header) = self.headers.get_mut(index) {
                     header.value = value;
                 }
+                Task::none()
             }
             Message::BodyActionPerformed(action) => {
-                // Просто применяем действие к редактору
                 self.body_content.perform(action);
+                Task::none()
             }
             Message::JsonThemeChanged(theme) => {
                 self.json_theme = theme;
+                Task::none()
             }
+            // 3. ОБНОВЛЯЕМ SendRequest для асинхронной работы
             Message::SendRequest => {
                 // Проверяем URL
                 if self.url_input.trim().is_empty() {
                     self.response_error = Some("URL is empty".to_string());
                     self.response_status = None;
                     self.is_loading = false;
-                    return;
+                    return Task::none();
                 }
 
+                // 1. Сразу показываем индикатор загрузки
                 self.is_loading = true;
                 self.response_error = None;
 
-                // Клонируем данные
+                // Клонируем данные для передачи в async задачу
                 let method = self.http_method;
                 let url = self.url_input.clone();
                 let query_params = self.query_params.clone();
                 let headers = self.headers.clone();
                 let body_text = self.body_content.text();
 
-                // Создаем клиент (блокирующий)
-                let client = reqwest::blocking::Client::new();
+                // 2. Запускаем асинхронную задачу
+                Task::perform(
+                    async move {
+                        // Вызываем асинхронную функцию
+                        send_http_request(method, url, query_params, headers, body_text).await
+                    },
+                    // 3. Когда задача завершится, Iced вызовет это
+                    Message::RequestCompleted
+                )
+            }
+            // 4. ДОБАВЛЯЕМ обработчик для RequestCompleted
+            Message::RequestCompleted(result) => {
+                self.is_loading = false;
 
-                // Создаем запрос
-                let mut request = match method {
-                    HttpMethod::GET => client.get(&url),
-                    HttpMethod::POST => client.post(&url),
-                    HttpMethod::PUT => client.put(&url),
-                    HttpMethod::DELETE => client.delete(&url),
-                    HttpMethod::PATCH => client.patch(&url),
-                };
-
-                // Добавляем query параметры
-                let params_map: std::collections::HashMap<String, String> = query_params
-                    .into_iter()
-                    .map(|p| (p.key, p.value))
-                    .collect();
-                if !params_map.is_empty() {
-                    request = request.query(&params_map);
-                }
-
-                // Добавляем заголовки
-                for header in headers {
-                    request = request.header(&header.key, &header.value);
-                }
-
-                // Добавляем тело если есть и метод не GET
-                if !body_text.trim().is_empty() && method != HttpMethod::GET {
-                    request = request.body(body_text);
-                }
-
-                // ВЫПОЛНЯЕМ ЗАПРОС СИНХРОННО (блокирует UI)
-                match request.send() {
-                    Ok(response) => {
-                        let status = response.status().as_u16();
-                        let body = response.text().unwrap_or_default();
+                match result {
+                    Ok((status, body)) => {
                         self.response_status = Some(status);
                         self.response_body = body;
                         self.response_error = None;
                     }
-                    Err(e) => {
+                    Err(error) => {
                         self.response_status = None;
                         self.response_body.clear();
-                        self.response_error = Some(format!("Request failed: {}", e));
+                        self.response_error = Some(error);
                     }
                 }
 
-                self.is_loading = false; // ← Запрос завершен, снимаем флаг загрузки
+                Task::none()
             }
         }
     }
@@ -824,6 +833,57 @@ impl Styling {
 
     fn theme(&self) -> Option<Theme> {
         self.theme.clone()
+    }
+}
+
+// ДОБАВЛЯЕМ асинхронную функцию (обязательно вне impl, чтоб токио её видел)
+async fn send_http_request(
+    method: HttpMethod,
+    url: String,
+    query_params: Vec<QueryParam>,
+    headers: Vec<HeaderParam>,
+    body_text: String,
+) -> Result<(u16, String), String> {
+    // Используем обычный (не blocking) клиент
+    let client = reqwest::Client::new();
+
+    // Создаем запрос в зависимости от метода
+    let mut request = match method {
+        HttpMethod::GET => client.get(&url),
+        HttpMethod::POST => client.post(&url),
+        HttpMethod::PUT => client.put(&url),
+        HttpMethod::DELETE => client.delete(&url),
+        HttpMethod::PATCH => client.patch(&url),
+    };
+
+    // Добавляем query параметры
+    let params_map: std::collections::HashMap<String, String> = query_params
+        .into_iter()
+        .map(|p| (p.key, p.value))
+        .collect();
+    if !params_map.is_empty() {
+        request = request.query(&params_map);
+    }
+
+    // Добавляем заголовки
+    for header in headers {
+        request = request.header(&header.key, &header.value);
+    }
+
+    // Добавляем тело если есть и метод не GET
+    if !body_text.trim().is_empty() && method != HttpMethod::GET {
+        request = request.body(body_text);
+    }
+
+    // Отправляем запрос АСИНХРОННО (не блокируя UI)
+    match request.send().await {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            // Тоже асинхронно читаем тело
+            let body = response.text().await.unwrap_or_default();
+            Ok((status, body))
+        }
+        Err(e) => Err(format!("Request failed: {}", e)),
     }
 }
 

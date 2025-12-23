@@ -5,7 +5,8 @@ authors = ["Vitalii A. Petrenko <v.petrenko@space-flow.dev>"]
 edition = "2021"
 
 [dependencies]
-iced = {version = "0.14.0", features = ['highlighter']}
+iced = {version = "0.14.0", features = ['highlighter', 'tokio']}
+tokio = { version = "1.0", features = ["rt", "time"] }
 iced_test = "0.14.0"
 serde_json = "1.0.145"
 reqwest = {version = "0.12", features = ["json", "blocking"]}
