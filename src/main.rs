@@ -856,23 +856,45 @@ async fn send_http_request(
         HttpMethod::PATCH => client.patch(&url),
     };
 
-    // Добавляем query параметры
+    // 1. Сначала проверяем headers ДО их перемещения на наличие "content-type"
+    let has_content_type = headers.iter()
+        .any(|h| h.key.to_lowercase() == "content-type");
+
+    // 2. Потом перемещаем в map query параметры
     let params_map: std::collections::HashMap<String, String> = query_params
         .into_iter()
         .map(|p| (p.key, p.value))
         .collect();
+
     if !params_map.is_empty() {
         request = request.query(&params_map);
     }
 
-    // Добавляем заголовки
+    // Добавляем заголовки в запрос
     for header in headers {
         request = request.header(&header.key, &header.value);
     }
 
     // Добавляем тело если есть и метод не GET
+    // Пытаемся парсить JSON, если не получается - отправляем как текст
     if !body_text.trim().is_empty() && method != HttpMethod::GET {
-        request = request.body(body_text);
+        match serde_json::from_str::<serde_json::Value>(&body_text) {
+            Ok(json_value) => {
+                // Это валидный JSON - отправляем как JSON
+                request = request.json(&json_value);
+
+                // Автоматически добавляем Content-Type если его нет
+                if !has_content_type {
+                    request = request.header("Content-Type", "application/json");
+                }
+
+            }
+            Err(_) => {
+                // Не JSON - отправляем как обычный текст
+                request = request.body(body_text);
+            }
+        }
+
     }
 
     // Отправляем запрос АСИНХРОННО (не блокируя UI)
