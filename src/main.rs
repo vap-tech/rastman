@@ -690,7 +690,7 @@ impl Styling {
                                 .size(12)
                                 .font(Font::MONOSPACE)
                         )
-                        .height(200)
+                        //.height(200) высота тела ответа
                     )
                     .padding(10)
                     .style(container::bordered_box),
@@ -714,11 +714,12 @@ impl Styling {
 
             container(column![
                 title,
-                space().height(10),
+                //space().height(10),
                 content,
             ]
                 .spacing(5)
                 .padding(10))
+                .width(Fill)
                 .style(container::bordered_box)
         };
 
