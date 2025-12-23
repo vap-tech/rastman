@@ -103,6 +103,7 @@ struct Styling {
     // ↓ Поля для JSON редактора ↓
     json_theme: highlighter::Theme,
     body_content: text_editor::Content,
+    json_valid: bool,
     // ↓ Добавляем новые поля ↓
     is_loading: bool,               // Индикатор загрузки
     response_status: Option<u16>,   // Статус ответа
@@ -130,6 +131,8 @@ impl Default for Styling {
             // Инициализируем поля для JSON редактора
             json_theme: highlighter::Theme::SolarizedDark, // или другой вариант
             body_content: text_editor::Content::new(),
+            // Пустое тело считаем валидным
+            json_valid: true,
             // ↓ Инициализируем поля для запроса ↓
             is_loading: false,
             response_status: None,
@@ -312,6 +315,15 @@ impl Styling {
             }
             Message::BodyActionPerformed(action) => {
                 self.body_content.perform(action);
+
+                // Проверяем валидность JSON
+                let text = self.body_content.text();
+                self.json_valid = if text.trim().is_empty() {
+                    true // Пустое тело - валидно
+                } else {
+                    serde_json::from_str::<serde_json::Value>(&text).is_ok()
+                };
+
                 Task::none()
             }
             Message::JsonThemeChanged(theme) => {
@@ -572,7 +584,16 @@ impl Styling {
 
         // Создадим секцию Body с text_editor
         let body_section = {
-            let title = text("Body (JSON):").size(16);
+            let title = row![
+                text("Body (JSON):").size(16),
+                space().width(10),
+                if self.json_valid {
+                    text("✅ Valid JSON").size(12).style(text::success)
+                } else {
+                    text("❌ Invalid JSON").size(12).style(text::danger)
+                }
+            ]
+                .align_y(Center);
             
             // Опционально: выбор темы подсветки
             let theme_selector = row![
@@ -604,7 +625,19 @@ impl Styling {
             ]
             .spacing(5)
             .padding(10))
-            .style(container::bordered_box)
+            .style(if self.json_valid {
+                container::bordered_box // обычная рамка
+            } else {
+                // Красная рамка для невалидного JSON
+                |theme: &Theme| container::Style {
+                    border: iced::border::Border {
+                        color: theme.palette().danger,
+                        width: 1.5,
+                        radius: 5.0.into(),
+                    },
+                    ..container::bordered_box(theme)
+                }
+            })
         };
 
         // Кнопка запроса
