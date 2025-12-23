@@ -1,10 +1,10 @@
-use iced::keyboard;
+use iced::{keyboard,};
 use iced::widget::{
     button, center_x, center_y, checkbox, column, container, pick_list,
     progress_bar, row, rule, scrollable, slider, space, text, text_input,
-    toggler,
+    toggler, Button
 };
-use iced::{Center, Element, Fill, Shrink, Subscription, Theme};
+use iced::{Center, Element, Fill, Shrink, Subscription, Theme, Font};
 use iced::highlighter; // Для подсветки синтаксиса
 use iced::widget::text_editor;
 
@@ -71,7 +71,7 @@ impl std::fmt::Display for HttpMethod {
     }
 }
 
-// 2. Добавим реализацию Display для наших структур
+// Реализация Display для наших структур
 impl std::fmt::Display for QueryParam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.key, self.value)
@@ -103,6 +103,11 @@ struct Styling {
     // ↓ Поля для JSON редактора ↓
     json_theme: highlighter::Theme,
     body_content: text_editor::Content,
+    // ↓ Добавляем новые поля ↓
+    is_loading: bool,               // Индикатор загрузки
+    response_status: Option<u16>,   // Статус ответа
+    response_body: String,          // Тело ответа
+    response_error: Option<String>, // Ошибка если была
 }
 
 // 3. Реализуй Default вручную
@@ -125,6 +130,11 @@ impl Default for Styling {
             // Инициализируем поля для JSON редактора
             json_theme: highlighter::Theme::SolarizedDark, // или другой вариант
             body_content: text_editor::Content::new(),
+            // ↓ Инициализируем поля для запроса ↓
+            is_loading: false,
+            response_status: None,
+            response_body: String::new(),
+            response_error: None,
         }
     }
 }
@@ -160,6 +170,8 @@ enum Message {
     BodyActionPerformed(text_editor::Action),
     // ↓ Опционально: для смены темы подсветки
     JsonThemeChanged(highlighter::Theme),
+    // ↓ Добавляем ↓
+    SendRequest,  // Отправка запроса
 }
 
 impl Styling {
@@ -278,6 +290,74 @@ impl Styling {
             }
             Message::JsonThemeChanged(theme) => {
                 self.json_theme = theme;
+            }
+            Message::SendRequest => {
+                // Проверяем URL
+                if self.url_input.trim().is_empty() {
+                    self.response_error = Some("URL is empty".to_string());
+                    self.response_status = None;
+                    self.is_loading = false;
+                    return;
+                }
+
+                self.is_loading = true;
+                self.response_error = None;
+
+                // Клонируем данные
+                let method = self.http_method;
+                let url = self.url_input.clone();
+                let query_params = self.query_params.clone();
+                let headers = self.headers.clone();
+                let body_text = self.body_content.text();
+
+                // Создаем клиент (блокирующий)
+                let client = reqwest::blocking::Client::new();
+
+                // Создаем запрос
+                let mut request = match method {
+                    HttpMethod::GET => client.get(&url),
+                    HttpMethod::POST => client.post(&url),
+                    HttpMethod::PUT => client.put(&url),
+                    HttpMethod::DELETE => client.delete(&url),
+                    HttpMethod::PATCH => client.patch(&url),
+                };
+
+                // Добавляем query параметры
+                let params_map: std::collections::HashMap<String, String> = query_params
+                    .into_iter()
+                    .map(|p| (p.key, p.value))
+                    .collect();
+                if !params_map.is_empty() {
+                    request = request.query(&params_map);
+                }
+
+                // Добавляем заголовки
+                for header in headers {
+                    request = request.header(&header.key, &header.value);
+                }
+
+                // Добавляем тело если есть и метод не GET
+                if !body_text.trim().is_empty() && method != HttpMethod::GET {
+                    request = request.body(body_text);
+                }
+
+                // ВЫПОЛНЯЕМ ЗАПРОС СИНХРОННО (блокирует UI)
+                match request.send() {
+                    Ok(response) => {
+                        let status = response.status().as_u16();
+                        let body = response.text().unwrap_or_default();
+                        self.response_status = Some(status);
+                        self.response_body = body;
+                        self.response_error = None;
+                    }
+                    Err(e) => {
+                        self.response_status = None;
+                        self.response_body.clear();
+                        self.response_error = Some(format!("Request failed: {}", e));
+                    }
+                }
+
+                self.is_loading = false; // ← Запрос завершен, снимаем флаг загрузки
             }
         }
     }
@@ -518,6 +598,130 @@ impl Styling {
             .style(container::bordered_box)
         };
 
+        // Кнопка запроса
+        let send_button: Button<Message> = if self.is_loading {
+            // Состояние загрузки
+            button(
+                row![
+            text("⏳").size(20),
+            space().width(10),
+            text("Sending...").size(16),
+        ]
+                    .align_y(Center)
+            )
+                .style(button::secondary)
+                .padding(15)
+                .width(Fill)
+        } else {
+            // Обычное состояние
+            button(
+                row![
+            text("🚀").size(20),
+            space().width(10),
+            text("Send Request").size(16),
+        ]
+                    .align_y(Center)
+            )
+                .on_press(Message::SendRequest)  // ← Важно: вызываем SendRequest
+                .style(button::primary)
+                .padding(15)
+                .width(Fill)
+        };
+
+        // Секция ответа
+        let response_section = {
+            let title = text("Response:").size(16);
+
+            // Явно указываем тип Element<Message>
+            let content: Element<Message> = if self.is_loading {
+                // Показываем индикатор загрузки
+                Element::from(
+                    container(
+                        column![
+                    text("Request in progress...").style(text::secondary),
+                    space().height(10),
+                    progress_bar(0.0..=100.0, 50.0),
+                ]
+                            .align_x(Center)
+                    )
+                        .padding(20)
+                        .center_x(Shrink)
+                )
+            } else if let Some(error) = &self.response_error {
+                // Показываем ошибку
+                Element::from(
+                    container(
+                        column![
+                    text("❌ Error").size(18).style(text::danger),
+                    space().height(5),
+                    text(error).size(14),
+                ]
+                            .spacing(5)
+                    )
+                        .padding(15)
+                        .style(container::bordered_box)
+                )
+            } else if let Some(status) = self.response_status {
+                // Показываем успешный ответ
+                let status_style = match status {
+                    200..=299 => text::success,
+                    400..=499 => text::warning,
+                    500..=599 => text::danger,
+                    _ => text::default,
+                };
+
+                Element::from(
+                    container(
+                        column![
+                    row![
+                        text(format!("Status: {}", status))
+                            .size(18)
+                            .style(status_style),
+                        space().width(20),
+                        text(if status == 200 { "✅ Success" } else { "⚠️ Warning" })
+                            .size(14),
+                    ]
+                    .align_y(Center),
+                    space().height(10),
+                    text("Response Body:").size(14),
+                    container(
+                        scrollable(
+                            text(&self.response_body)
+                                .size(12)
+                                .font(Font::MONOSPACE)
+                        )
+                        .height(200)
+                    )
+                    .padding(10)
+                    .style(container::bordered_box),
+                ]
+                            .spacing(10)
+                    )
+                        .padding(15)
+                        .style(container::bordered_box)
+                )
+            } else {
+                // Нет ответа (начальное состояние)
+                Element::from(
+                    container(
+                        text("No response yet. Click 'Send Request' to make a call.")
+                            .style(text::secondary)
+                    )
+                        .padding(20)
+                        .center_x(Shrink)
+                )
+            };
+
+            container(column![
+                title,
+                space().height(10),
+                content,
+            ]
+                .spacing(5)
+                .padding(10))
+                .style(container::bordered_box)
+        };
+
         let slider =
             || slider(0.0..=100.0, self.slider_value, Message::SliderChanged);
 
@@ -566,6 +770,8 @@ impl Styling {
             url_input, // ← Строка адреса
             params_tables, // ← Таблички параметров
             body_section, // ← Редактор Body
+            send_button,      // ← Добавляем кнопку
+            response_section, // ← Добавляем ответ
             rule::horizontal(1),
             text_input,
             buttons,
