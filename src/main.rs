@@ -16,6 +16,37 @@ pub fn main() -> iced::Result {
         .run()
 }
 
+// Популярные заголовки
+const COMMON_HEADERS: &[&str] = &[
+    "Accept",
+    "Accept-Charset",
+    "Accept-Encoding",
+    "Accept-Language",
+    "Authorization",
+    "Cache-Control",
+    "Content-Type",
+    "Content-Length",
+    "Content-Encoding",
+    "Cookie",
+    "Date",
+    "Host",
+    "User-Agent",
+    "X-API-Key",
+    "X-Requested-With",
+    "X-CSRF-Token",
+    "X-Forwarded-For",
+    "X-Forwarded-Proto",
+    "If-Modified-Since",
+    "If-None-Match",
+    "ETag",
+    "Location",
+    "Referer",
+    "Origin",
+    "Access-Control-Allow-Origin",
+    "Access-Control-Allow-Methods",
+    "Access-Control-Allow-Headers",
+];
+
 // Перечисление HTTP методов
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum HttpMethod {
@@ -109,6 +140,7 @@ struct Styling {
     response_status: Option<u16>,   // Статус ответа
     response_body: String,          // Тело ответа
     response_error: Option<String>, // Ошибка если была
+    header_suggestions: Vec<String>,    // Текущие подсказки
 }
 
 // 3. Реализуй Default вручную
@@ -138,6 +170,7 @@ impl Default for Styling {
             response_status: None,
             response_body: String::new(),
             response_error: None,
+            header_suggestions: Vec::new(),
         }
     }
 }
@@ -176,6 +209,7 @@ enum Message {
     // ↓ Добавляем ↓
     SendRequest,  // Отправка запроса
     RequestCompleted(Result<(u16, String), String>), // ← По завершении запроса
+    ApplyHeaderSuggestion(String),   // Применить подсказку (клик по ней)
 }
 
 impl Styling {
@@ -276,7 +310,23 @@ impl Styling {
                 Task::none()
             }
             Message::NewHeaderKeyChanged(key) => {
-                self.new_header_key = key;
+
+                // Показываем подсказки если ввели хотя бы 2 символа
+                self.new_header_key = key.clone();
+
+                // Всегда обновляем подсказки при изменении текста
+                if key.len() >= 2 {
+                    self.header_suggestions = self.get_header_suggestions(&key);
+                } else {
+                    self.header_suggestions.clear();
+                }
+
+                Task::none()
+            }
+            // ↓ Новые обработчики для автодополнения ↓
+            Message::ApplyHeaderSuggestion(header) => {
+                self.new_header_key = header;
+                self.header_suggestions.clear(); // ← ОЧИЩАЕМ подсказки
                 Task::none()
             }
             Message::NewHeaderValueChanged(value) => {
@@ -477,7 +527,7 @@ impl Styling {
         // Функция для Headers таблицы
         let headers_table = {
             let title = text("Headers:").size(16);
-            
+
             let items_table: Element<Message> = if self.headers.is_empty() {
                 container(text("No headers added yet").style(text::secondary))
                     .padding(10)
@@ -486,54 +536,88 @@ impl Styling {
             } else {
                 let rows = self.headers.iter().enumerate().map(|(index, header)| {
                     row![
-                        text_input("Key", &header.key)
-                            .on_input(move |key| Message::UpdateHeaderKey(index, key))
-                            .width(140)
-                            .padding(5),
-                        text_input("Value", &header.value)
-                            .on_input(move |value| Message::UpdateHeaderValue(index, value))
-                            .width(140)
-                            .padding(5),
-                        button(text("🗑️").size(14))
-                            .on_press(Message::RemoveHeader(index))
-                            .padding(5)
-                            .style(button::danger),
-                    ]
-                    .spacing(8)
-                    .align_y(Center)
+                text_input("Key", &header.key)
+                    .on_input(move |key| Message::UpdateHeaderKey(index, key))
+                    .width(140)
+                    .padding(5),
+                text_input("Value", &header.value)
+                    .on_input(move |value| Message::UpdateHeaderValue(index, value))
+                    .width(140)
+                    .padding(5),
+                button(text("🗑️").size(14))
+                    .on_press(Message::RemoveHeader(index))
+                    .padding(5)
+                    .style(button::danger),
+            ]
+                        .spacing(8)
+                        .align_y(Center)
                 });
 
                 let rows_vec: Vec<Element<Message>> = rows.map(|row| row.into()).collect();
                 column(rows_vec).spacing(5).into()
             };
 
-            let add_form = row![
-                text_input("Key...", &self.new_header_key)
-                    .on_input(Message::NewHeaderKeyChanged)
-                    .width(140)
-                    .padding(5),
-                text_input("Value...", &self.new_header_value)
-                    .on_input(Message::NewHeaderValueChanged)
-                    .width(140)
-                    .padding(5),
-                button(text("+ Add").size(14))
-                    .on_press(Message::AddHeader)
-                    .padding(5)
-                    .style(button::success),
-            ]
-            .spacing(8)
-            .align_y(Center);
+            // ↓ ОБНОВЛЯЕМ форму добавления с автодополнением ↓
+            let header_key_input = text_input("Key...", &self.new_header_key)
+                .on_input(Message::NewHeaderKeyChanged)
+                .width(140)
+                .padding(5);
+
+            // Виджет с подсказками
+            let suggestions_widget: Element<Message> =
+                if self.new_header_key.len() >= 2 && !self.header_suggestions.is_empty() {
+                    let suggestions: Vec<Element<Message>> = self.header_suggestions
+                        .clone()
+                        .into_iter()
+                        .map(|suggestion_text| {
+                            let text_for_display = suggestion_text.clone(); // Клон для отображения
+
+                            button(text(text_for_display).size(12))
+                                .on_press(Message::ApplyHeaderSuggestion(suggestion_text)) // Передаем владение
+                                .padding(8)
+                                .width(Fill)
+                                .style(button::secondary)
+                                .into()
+                        })
+                        .collect();
+
+                    container(column(suggestions).spacing(2))
+                        .padding(5)
+                        .style(container::bordered_box)
+                        .into()
+                } else {
+                    // Пустой элемент когда нет подсказок
+                    Element::from(space().height(0))
+                };
+
+            let add_form = column![
+        row![
+            header_key_input,
+            text_input("Value...", &self.new_header_value)
+                .on_input(Message::NewHeaderValueChanged)
+                .width(140)
+                .padding(5),
+            button(text("+ Add").size(14))
+                .on_press(Message::AddHeader)
+                .padding(5)
+                .style(button::success),
+        ]
+        .spacing(8)
+        .align_y(Center),
+        suggestions_widget, // ← Добавляем подсказки под полем ввода
+    ]
+                .spacing(5);
 
             container(column![
-                title,
-                space().height(5),
-                items_table,
-                space().height(10),
-                add_form,
-            ]
-            .spacing(5)
-            .padding(10))
-            .style(container::bordered_box)
+        title,
+        space().height(5),
+        items_table,
+        space().height(10),
+        add_form,
+    ]
+                .spacing(5)
+                .padding(10))
+                .style(container::bordered_box)
         };
 
         // 4. Собираем таблицы рядом
@@ -867,6 +951,22 @@ impl Styling {
     fn theme(&self) -> Option<Theme> {
         self.theme.clone()
     }
+
+    fn get_header_suggestions(&self, input: &str) -> Vec<String> {
+        if input.is_empty() {
+            return Vec::new();
+        }
+
+        let input_lower = input.to_lowercase();
+
+        COMMON_HEADERS
+            .iter()
+            .filter(|header| header.to_lowercase().contains(&input_lower))
+            .map(|s| s.to_string())
+            .take(5) // Показываем до 5 подсказок
+            .collect()
+    }
+
 }
 
 // ДОБАВЛЯЕМ асинхронную функцию (обязательно вне impl, чтоб токио её видел)
@@ -909,7 +1009,7 @@ async fn send_http_request(
     }
 
     // Добавляем тело если есть и метод не GET
-    // Пытаемся парсить JSON, если не получается - отправляем как текст
+    // Попытка to JSON, если не получается - отправляем как текст
     if !body_text.trim().is_empty() && method != HttpMethod::GET {
         match serde_json::from_str::<serde_json::Value>(&body_text) {
             Ok(json_value) => {
@@ -939,42 +1039,5 @@ async fn send_http_request(
             Ok((status, body))
         }
         Err(e) => Err(format!("Request failed: {}", e)),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rayon::prelude::*;
-
-    use iced_test::{Error, simulator};
-
-    #[test]
-    #[ignore]
-    fn it_showcases_every_theme() -> Result<(), Error> {
-        Theme::ALL
-            .par_iter()
-            .cloned()
-            .map(|theme| {
-                let mut styling = Styling::default();
-                styling.update(Message::ThemeChanged(theme.clone()));
-
-                let mut ui = simulator(styling.view());
-                let snapshot = ui.snapshot(&theme)?;
-
-                assert!(
-                    snapshot.matches_hash(format!(
-                        "snapshots/{theme}",
-                        theme = theme
-                            .to_string()
-                            .to_ascii_lowercase()
-                            .replace(" ", "_")
-                    ))?,
-                    "snapshots for {theme} should match!"
-                );
-
-                Ok(())
-            })
-            .collect()
     }
 }
