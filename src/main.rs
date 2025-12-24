@@ -418,7 +418,21 @@ impl Styling {
                 match result {
                     Ok((status, body)) => {
                         self.response_status = Some(status);
-                        self.response_body = body;
+
+                        // Десериализация в структуру
+                        let json_row = serde_json::from_str::<serde_json::Value>(&body);
+                        match json_row {
+                            Ok(json_row) => {
+                                // Сериализация обратно в красивую строку (pretty print)
+                                let json_body = serde_json::to_string_pretty(&json_row).unwrap();
+                                self.response_body = json_body;
+                            },
+                            Err(_e) => {
+                                // Не json или он кривой, выводим как есть
+                                self.response_body = body;
+                            }
+                        };
+
                         self.response_error = None;
                     }
                     Err(error) => {
